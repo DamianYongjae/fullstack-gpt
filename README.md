@@ -9,3 +9,9 @@ source env/bin/activate
 ```
 deactivate
 ```
+
+- run streamlit
+
+```
+streamlit run Home.py
+```
