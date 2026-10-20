@@ -6,10 +6,11 @@ from langchain.vectorstores import FAISS
 from langchain.embeddings import OpenAIEmbeddings, CacheBackedEmbeddings
 from langchain.storage import LocalFileStore
 from langchain.chains import StuffDocumentsChain
-from langchain.prompts import ChatPromptTemplate
+from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.schema.runnable import RunnablePassthrough, RunnableLambda
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain.chat_models import ChatOpenAI
+from langchain.memory import ConversationSummaryBufferMemory
 
 st.set_page_config(
   page_title="DocumentGPT Home",
@@ -38,7 +39,18 @@ llm = ChatOpenAI(
   ]
 )
 
+memory = ConversationSummaryBufferMemory(
+  llm=llm,
+  max_token_limit=10,
+  memory_key="chat_history",
+  return_messages=True
+)
+
+def load_memory(_):
+  return memory.load_memory_variables({})["chat_history"]
+
 @st.cache_data(show_spinner="Embedding file...")
+
 def embed_file(file):
   file_content = file.read()
   file_path=f"./.cache/files/{file.name}"
@@ -70,8 +82,6 @@ def send_message(message, role, save=True):
   if save:
     save_message(message, role)
 
-
-
 def paint_history():
   for message in st.session_state["messages"]:
     send_message(message["message"], message["role"], save=False)
@@ -87,6 +97,7 @@ prompt = ChatPromptTemplate.from_messages([
     Context: {context}
    """,
    ),
+  MessagesPlaceholder(variable_name="chat_history"),
   ("human", "{question}")
 ])
 
@@ -112,14 +123,17 @@ if file:
   
   if message:
     send_message(message, "human")
-    chain = {
+    memory.load_memory_variables({})
+    chain =  {
       "context": retriever | RunnableLambda(format_docs),
-      "question": RunnablePassthrough()
+      "question": RunnablePassthrough(),
+      "chat_history": load_memory
     } | prompt | llm
     with st.chat_message("ai"):
-      response = chain.invoke(message)
-    
-    # send_message(response.content, "ai")
+      result = chain.invoke(message)
+      memory.save_context({"input": message}, {"output": result.content})
+    memory.load_memory_variables({})["chat_history"]
+
 else:
   st.session_state["messages"] = []
 
